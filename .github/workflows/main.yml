@@ -1,23 +1,47 @@
+
 name: Portfolio Deployment
 
 on:
   push:
     branches:
-    - main
+      - main
+
+# Allow GitHub to request an OIDC token from AWS.
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   build-and-deploy:
+    name: Deploy Website to Private S3
     runs-on: ubuntu-latest
+
     steps:
-    - name: Checkout
-      uses: actions/checkout@v1
+      # 1. Download repository code.
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v1
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: us-east-1
+      # 2. Authenticate to AWS using GitHub OIDC.
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
 
-    - name: Deploy static site to S3 bucket
-      run: aws s3 sync  ./S3-Static-Website-master s3://portfolio-websitenew --delete
+      # 3. Verify which AWS identity is being used.
+      - name: Verify AWS Identity
+        run: aws sts get-caller-identity
+
+      # 4. Upload website files to private S3.
+      - name: Deploy Static Website to S3
+        run: |
+          aws s3 sync ./S3-Static-Website-master \
+            s3://private-cloudfront-lab/static-web/ \
+            --delete
+
+      # 5. Refresh CloudFront cache.
+      - name: Invalidate CloudFront Cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id E386NZB64O48JS \
+            --paths "/*"
